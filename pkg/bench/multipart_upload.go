@@ -15,7 +15,7 @@ import (
 type MultipartUpload struct {
 	Common
 
-	ObjectSize       uint64
+	PartsNumber      int
 	PartsConcurrency int
 }
 
@@ -88,16 +88,18 @@ func (g *MultipartUpload) createMultupartUpload(ctx context.Context, objectName 
 		return "", err
 	}
 
+	// Non-terminating context.
+	nonTerm := context.Background()
+
 	client, done := g.Client()
 	defer done()
 	c := minio.Core{Client: client}
-	return c.NewMultipartUpload(ctx, g.Bucket, objectName, g.PutOpts)
+	return c.NewMultipartUpload(nonTerm, g.Bucket, objectName, g.PutOpts)
 }
 
 func (g *MultipartUpload) uploadParts(ctx context.Context, thread uint16, objectName string, uploadID string) error {
-	partNum := int(g.ObjectSize / uint64(g.Source().Object().Size))
-	partIdxCh := make(chan int, partNum)
-	for i := range partNum {
+	partIdxCh := make(chan int, g.PartsNumber)
+	for i := range g.PartsNumber {
 		partIdxCh <- i + 1
 	}
 	close(partIdxCh)
@@ -111,8 +113,12 @@ func (g *MultipartUpload) uploadParts(ctx context.Context, thread uint16, object
 		eg.Go(func() error {
 			for ctx.Err() == nil {
 				var partIdx int
+				var ok bool
 				select {
-				case partIdx = <-partIdxCh:
+				case partIdx, ok = <-partIdxCh:
+					if !ok {
+						return nil
+					}
 				case <-ctx.Done():
 					continue
 				}
@@ -161,9 +167,12 @@ func (g *MultipartUpload) uploadParts(ctx context.Context, thread uint16, object
 }
 
 func (g *MultipartUpload) completeMultipartUpload(ctx context.Context, objectName string, uploadID string) error {
+	// Non-terminating context.
+	nonTerm := context.Background()
+
 	cl, done := g.Client()
 	c := minio.Core{Client: cl}
 	defer done()
-	_, err := c.CompleteMultipartUpload(ctx, g.Bucket, objectName, uploadID, nil, g.PutOpts)
+	_, err := c.CompleteMultipartUpload(nonTerm, g.Bucket, objectName, uploadID, nil, g.PutOpts)
 	return err
 }

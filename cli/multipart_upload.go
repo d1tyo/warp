@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/minio/cli"
@@ -10,10 +9,10 @@ import (
 )
 
 var multipartUploadFlags = []cli.Flag{
-	cli.StringFlag{
-		Name:  "obj.size",
-		Value: "5MiB",
-		Usage: "Size of each multipart object. Can be a number or MiB/GiB. Must be a single value",
+	cli.IntFlag{
+		Name:  "parts",
+		Value: 100,
+		Usage: "Number of parts to upload for each multipart upload",
 	},
 	cli.StringFlag{
 		Name:  "part.size",
@@ -47,20 +46,13 @@ FLAGS:
   {{end}}`,
 }
 
-// TODO(dtyo): add description of multipart-upload mode to README.md and add a link to the usage description above
-
 // mainMutipartUpload is the entry point for multipart-upload command
 func mainMutipartUpload(ctx *cli.Context) error {
 	checkMultipartUploadSyntax(ctx)
 
-	objSize, err := toSize(ctx.String("obj.size"))
-	if err != nil {
-		return fmt.Errorf("converting obj.size to size: %w", err)
-	}
-
 	b := &bench.MultipartUpload{
 		Common:           getCommon(ctx, newGenSource(ctx, "part.size")),
-		ObjectSize:       objSize,
+		PartsNumber:      ctx.Int("parts"),
 		PartsConcurrency: ctx.Int("part.concurrent"),
 	}
 	return runBench(ctx, b)
@@ -74,20 +66,13 @@ func checkMultipartUploadSyntax(ctx *cli.Context) {
 		console.Fatal("cannot disable multipart for multipart-upload test")
 	}
 
-	objSize := parseSingleSize(ctx, "obj.size")
 	partSize := parseSingleSize(ctx, "part.size")
 
 	if partSize < 5<<20 {
 		console.Fatal("part.size must be >= 5MiB")
 	}
-	if objSize <= partSize {
-		console.Fatal("part.size must be less than obj.size")
-	}
-	if objSize%partSize != 0 {
-		console.Fatal("obj.size must be divisible by part.size", objSize, partSize)
-	}
-	if ctx.Uint64("part.concurrent") > objSize/partSize {
-		console.Fatalf("part.concurrent is too much for a given obj.size and part.size. Must be not greater than %v\n", objSize/partSize)
+	if ctx.Int("parts") > 10000 {
+		console.Fatal("parts can't be more than 10000")
 	}
 }
 
@@ -102,3 +87,5 @@ func parseSingleSize(ctx *cli.Context, sizeField string) uint64 {
 
 	return sz
 }
+
+// TODO(dtyo): support cleanup
